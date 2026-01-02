@@ -1,10 +1,17 @@
 import pandas as pd
 import requests
 import time
+import json
 import urllib3
 
 # Отключаем предупреждения SSL
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
+# Загружаем конфиг
+with open('config.json', 'r') as f:
+    CONFIG = json.load(f)
+
+CH = CONFIG['clickhouse']
 
 # Общие заголовки
 HEADERS = {
@@ -18,10 +25,39 @@ HEADERS = {
     'Sec-Fetch-Site': 'same-origin',
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36',
     'X-KS-City': '750000000',
-    'sec-ch-ua': '"Google Chrome";v="143", "Chromium";v="143", "Not A(Brand";v="24"',
+    'sec-ch-ua': '"Google Chrome";v="143", "Chromium";v="143", "Not A(Brand);v="24"',
     'sec-ch-ua-mobile': '?0',
     'sec-ch-ua-platform': '"Windows"'
 }
+
+
+def insert_df(df: pd.DataFrame, table: str, database: str = None) -> int:
+    """Записывает DataFrame в ClickHouse через HTTP интерфейс"""
+    db = database or CH['CH_DB']
+    url = f"http://{CH['CH_HOST']}:{CH['CH_PORT']}/"
+
+    # Конвертируем DataFrame в JSONEachRow формат
+    records = df.to_dict(orient='records')
+    data = '\n'.join(json.dumps(r, ensure_ascii=False, default=str) for r in records)
+
+    # POST запрос
+    query = f"INSERT INTO {table} FORMAT JSONEachRow"
+
+    r = requests.post(
+        url,
+        params={
+            "database": db,
+            "query": query
+        },
+        data=data.encode('utf-8'),
+        auth=(CH['CH_USER'], CH['CH_PASS']),
+        timeout=CH['CH_HTTP_TIMEOUT']
+    )
+
+    if r.status_code != 200:
+        raise Exception(f"ClickHouse error: {r.text}")
+
+    return len(records)
 
 
 def get_main_categories():
@@ -78,7 +114,7 @@ def flatten_categories(items, main_category_code, main_category_title, parent_id
             'main_category_title': main_category_title,
             'id': item.get('id', ''),
             'title': item.get('title', ''),
-            'titleRu': item.get('titleRu', ''),
+            'title_ru': item.get('titleRu', ''),
             'link': item.get('link', ''),
             'active': item.get('active', False),
             'count': item.get('count', 0),
@@ -105,7 +141,7 @@ def flatten_categories(items, main_category_code, main_category_title, parent_id
     return rows
 
 
-def collect_all_categories(delay=1.0):
+def collect_all_categories(delay=0.5):
     """Собирает все категории со всех основных разделов"""
     print("Получаем список основных категорий...")
     main_categories = get_main_categories()
@@ -120,25 +156,6 @@ def collect_all_categories(delay=1.0):
 
         try:
             tree = get_category_tree(code)
-
-            # Добавляем top категорию если есть
-            if 'top' in tree and tree['top']:
-                top = tree['top']
-                all_rows.append({
-                    'main_category_code': code,
-                    'main_category_title': title,
-                    'id': top.get('id', ''),
-                    'title': top.get('title', ''),
-                    'titleRu': top.get('titleRu', ''),
-                    'link': top.get('link', ''),
-                    'active': top.get('active', False),
-                    'count': top.get('count', 0),
-                    'popularity': top.get('popularity', 0),
-                    'expanded': top.get('expanded', False),
-                    'parent_id': None,
-                    'parent_title': None,
-                    'level': -1  # top уровень
-                })
 
             # Обрабатываем items
             if 'items' in tree and tree['items']:
@@ -169,27 +186,32 @@ def main():
     # Создаём DataFrame
     df = pd.DataFrame(all_data)
 
+    # Приводим типы для ClickHouse
+    df['active'] = df['active'].astype(bool)
+    df['expanded'] = df['expanded'].astype(bool)
+    df['count'] = df['count'].astype(int)
+    df['popularity'] = df['popularity'].astype(int)
+    df['level'] = df['level'].astype(int)
+
+    # Заполняем None строками для ClickHouse
+    df['parent_id'] = df['parent_id'].fillna('')
+    df['parent_title'] = df['parent_title'].fillna('')
+
     print("\n" + "=" * 60)
     print(f"Итого собрано: {len(df)} категорий")
     print("=" * 60)
 
-    # Статистика по основным категориям
-    print("\nСтатистика по основным категориям:")
-    stats = df.groupby('main_category_title').size().sort_values(ascending=False)
-    print(stats.to_string())
+    # Записываем в ClickHouse
+    table = CH['CH_TABLE']
+    db = CH['CH_DB']
 
-    # Сохраняем в CSV
-    output_file = 'kaspi_all_categories.csv'
-    df.to_csv(output_file, index=False, encoding='utf-8-sig')
-    print(f"\nДанные сохранены в: {output_file}")
+    print(f"\nЗаписываем в ClickHouse {db}.{table}...")
 
-    # Также сохраняем в Excel если нужно
     try:
-        excel_file = 'kaspi_all_categories.xlsx'
-        df.to_excel(excel_file, index=False)
-        print(f"Данные сохранены в: {excel_file}")
+        inserted = insert_df(df, table, db)
+        print(f"Успешно записано {inserted} строк в ClickHouse!")
     except Exception as e:
-        print(f"Не удалось сохранить Excel: {e}")
+        print(f"Ошибка записи в ClickHouse: {e}")
 
     return df
 

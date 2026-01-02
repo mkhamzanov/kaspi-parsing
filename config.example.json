@@ -1,0 +1,12 @@
+{
+  "clickhouse": {
+    "CH_HOST": "your-clickhouse-host",
+    "CH_PORT": 8123,
+    "CH_USER": "your-user",
+    "CH_PASS": "your-password",
+    "CH_DB": "kaspi",
+    "CH_TABLE": "categories",
+    "CH_BATCH_ROWS": 500000,
+    "CH_HTTP_TIMEOUT": 600
+  }
+}

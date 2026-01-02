@@ -18,9 +18,12 @@ __pycache__/
 .vscode/
 .idea/
 
-# Output files (можно закомментировать если нужно хранить)
-# *.csv
-# *.xlsx
+# Config with credentials (DO NOT COMMIT!)
+config.json
+
+# Output files
+*.csv
+*.xlsx
 
 # OS
 .DS_Store
