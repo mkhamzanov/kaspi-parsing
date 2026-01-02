@@ -1,0 +1,30 @@
+# Virtual environment
+venv/
+env/
+.venv/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb_checkpoints
+
+# IDE
+.vscode/
+.idea/
+
+# Output files (можно закомментировать если нужно хранить)
+# *.csv
+# *.xlsx
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
